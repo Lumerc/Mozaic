@@ -1,0 +1,63 @@
+#fileLoader
+{
+    float: left;
+    border: 1px solid #000000;
+    padding: 8px;
+    border-radius: 5px;
+    background: #aa98e3;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0px 0px 20px 9px #18335a inset;
+}
+
+body
+{
+    padding: 0;
+    margin: 0;
+}
+
+.nonselect
+{
+    user-select: none;
+}
+
+div#leftColumn 
+{
+    display: flex;
+    flex-grow: 1;
+    align-items: stretch;
+    flex-direction: row;
+    justify-content: center;
+    background: gray;
+    color: white;
+    border-bottom: 3px solid #323232;
+    margin-bottom: 5px;
+    font: 12px / 14px Tahoma;
+}
+
+div#leftColumn > *
+{
+    /* flex-grow: 1; */
+    /* align-self: stretch; */
+    display: flex;
+    /* justify-content: center; */
+    /* justify-content: center; */
+    align-items: center;
+    padding: 10px;
+    margin: 10px 0;
+}
+
+div#leftColumn input[type=text]
+{
+    width: 35px;
+}
+
+label
+{
+    user-select: none;
+}
+
+label *
+{
+    margin-left: 5px;
+}

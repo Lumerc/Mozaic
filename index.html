@@ -1,0 +1,584 @@
+<html>
+<head>
+<link type="text/css" rel="stylesheet" href="css/style.css">
+<script src="js/jquery.min.js"></script>
+
+<link rel="stylesheet" href="css/jcrop.css">
+<link rel="stylesheet" href="css/pdf.css">
+<script src="js/jquery.Jcrop.js"></script>
+
+
+<script>
+var jcropIsSet = false;
+var cropData = false;
+var pixelsPerMM = 0;
+var cellSizePixels = 0;
+var cellSizeMM = 2.5;
+var sizeOfOneCell = cellSizeMM * cellSizeMM * cellSizeMM;
+
+var showPrintPage = false;
+var printCellSize = 16;
+
+var originalImage = false;
+var resultCanvas = false;
+var count = 0;
+
+var wrapSize = 0;
+
+class Point
+{
+    constructor()
+    {
+        this.color = false;
+        this.name = false;
+        this.count = false;
+        this.dark = false;
+    }
+}
+
+class cell
+{
+    constructor(size)
+    {
+        this.point = [];
+        for(y in size)
+        {
+            this.point[y] = [];
+            for(x in size)
+            {
+                this.point[y][x] = new Point();
+            }
+        }
+    }
+}
+
+class mapToPrint
+{
+    constructor(x, y, size, color)
+    {
+        this.x = x;
+        this.y = y;
+        this.size = size;
+        this.color = color;
+        
+        this.Ymax = Math.ceil(y / size);
+        this.Xmax = Math.ceil(x / size);
+        
+        this.cellsCount = this.Ymax * this.Xmax;
+        this.cells = [];
+        
+        for(var i = 0; i < this.cellsCount; i++)
+        {
+            this.cells[i] = new cell(size);
+        }
+    }
+}
+
+var mapToPrintObject = false;
+
+$(document).ready(function()
+{    
+    $('input[type="file"]').on('change', (event) => 
+    {
+        let reader = new FileReader();
+        originalImage = document.getElementById('myImage');
+        resultCanvas = document.getElementById('resultCanvas');
+        
+        reader.onload = function(e) 
+        {
+            originalImage.src = e.target.result;
+            originalImage.onload = function() 
+            {
+                if(jcropIsSet)
+                    jcropIsSet.destroy();
+                    
+                $('#myImage').Jcrop( 
+                {
+                    onChange:showCoords,
+                    setSelect: [ $('#width').val(), $('#height').val(), 0, 0 ],  
+                },function()
+                {
+                    jcropIsSet = this;
+                });
+
+                updateAspectRatio();
+                
+                updateMozaic();
+
+            };
+        };
+        
+        reader.readAsDataURL(event.target.files[0]);
+    });
+    
+    $('#format, #palette, #showPrintPage').change(function()
+    {
+        showPrintPage = $('#showPrintPage:checked').length ? true : false;
+    
+        changeFormat($(this).val());
+        updateAspectRatio();
+    });
+    
+    $('#width, #height').keyup(function()
+    {
+        $('#format').val('');
+        updateAspectRatio();
+    });
+    
+    changeFormat($('#format').val());
+});
+// Предопределенные цветовые палитры
+const palettes = 
+{
+    original: 
+    [
+        { r: 255, g: 255, b: 255 },  //белый 
+        { r: 199, g: 202, b: 215 },  //"B" светло серый 159
+        { r: 108, g: 108, b: 108 },  //"C" серый 317
+        { r: 27, g: 40, b: 83 },  //"D" темно-темно серый 939
+        { r: 0, g: 0, b: 0 }  //черный
+    ],
+    
+    vintage: 
+    [
+        { r: 255, g: 255, b: 255 },  //белый
+        { r: 220, g: 196, b: 170 }, //"L" светло-коричневый 613
+        { r: 182, g: 155, b: 126 }, //"M" бежево-коричневый 841
+        { r: 107, g: 87, b: 67 }, //"P" темно-коричневый 3781
+        { r: 130, g: 38, b: 55 }, //"E" красный 902
+        { r: 17, g: 65, b: 109 }, //"T" синий 796
+        { r: 0, g: 0, b: 0 }  //черный
+    ],
+    
+    popart: 
+    [
+        { r: 255, g: 255, b: 255 },  //белый
+        { r: 245, g: 240, b: 150 }, //"A" желтый  445
+        { r: 237, g: 177, b: 30 }, //"F" оранжевый 973
+        { r: 35, g: 177, b: 196 }, //"W" бирюзовый 3847
+        { r: 232, g: 77, b: 131 }, //"K" фиолетовый 552
+        { r: 98, g: 41, b: 107 }, //"H" темно-фиолетовый 550
+        { r: 0, g: 0, b: 0 }  //черный  
+    ],
+    
+    realistic: 
+    [
+        { r: 255, g: 255, b: 255 },  //белый
+        
+        { r: 199, g: 202, b: 215 },  //"B" светло серый 159
+        { r: 108, g: 108, b: 108 },  //"C" серый 317
+        { r: 27, g: 40, b: 83 },  //"D" темно-темно серый 939
+        
+        { r: 220, g: 196, b: 170 }, //"L" светло-коричневый 613
+        { r: 182, g: 155, b: 126 }, //"M" бежево-коричневый 841
+        { r: 107, g: 87, b: 67 }, //"P" темно-коричневый 3781
+        { r: 130, g: 38, b: 55 }, //"E" красный 902
+        { r: 17, g: 65, b: 109 }, //"T" синий 796
+        
+        { r: 255, g: 251, b: 139 }, //"A" желтый  445
+        { r: 255, g: 227, b: 0 }, //"F" оранжевый 973
+        { r: 52, g: 125, b: 117 }, //"W" бирюзовый 3847
+        { r: 128, g: 58, b: 107 }, //"K" фиолетовый 552
+        { r: 92, g: 24, b: 78 }, //"H" темно-фиолетовый 550
+        
+        { r: 0, g: 0, b: 0 }  //черный  
+    ],
+}
+
+function updateMozaic()
+{
+    hCellsCount = Math.floor($('#width').val() / cellSizeMM);
+    vCellsCount = Math.floor($('#height').val() / cellSizeMM);
+
+    const processedCanvas = createUniformMosaic(originalImage, palettes[$('#palette').val()]);
+    // Очищаем предыдущий результат
+    resultCanvas.width = processedCanvas.width;
+    resultCanvas.height = processedCanvas.height;
+    const ctx = resultCanvas.getContext('2d');
+    ctx.drawImage(processedCanvas, 0, 0);
+}
+
+function showCoords(e)
+{
+    cropData = e;
+
+    //сколько пикселей картинки пойдёт на один мм холста
+    pixelsPerMM = cropData.w / $('#width').val();
+    $('#pxOnMM').text('Пиксели на мм холста: ' + Math.floor(pixelsPerMM * 100)/100 + 'px/мм');
+    
+    //размер в пикселях одной стразы
+    cellSizePixels = cellSizeMM * pixelsPerMM;
+    
+    if(e.w < 1 || e.h < 1)
+        return;
+    
+    updateMozaic();
+}
+
+function updateAspectRatio()
+{
+    if(jcropIsSet)
+    {
+        jcropIsSet.setOptions({ aspectRatio: $('#width').val() / $('#height').val() });
+        hCellsCount = Math.floor($('#width').val() / cellSizeMM);
+        vCellsCount = Math.floor($('#height').val() / cellSizeMM);
+        $('#mozaicCount').text('Количество страз: ' + hCellsCount + '/' + vCellsCount + ' (' + hCellsCount * vCellsCount + ')');
+    }
+}
+
+function changeFormat(value)
+{
+    width = 0;
+    height = 0;
+
+    switch(value)
+    {
+        case '16': 
+            width = 160;
+            height = 160;
+        break;
+        case 'a5v': 
+            width = 148;
+            height = 210;
+        break;
+        case 'a4v': 
+            width = 210;
+            height = 297;
+        break;
+        case 'a3v': 
+            width = 297;
+            height = 420;
+        break;
+        case 'a5h': 
+            width = 210;
+            height = 148;
+        break;
+        case 'a4h': 
+            width = 297;
+            height = 210;
+        break;
+        case 'a3h': 
+            width = 420;
+            height = 297;
+        break;
+    }
+
+    if(width == 0 || height == 0)
+        return;
+
+    $('#height').val(height);
+    $('#width').val(width);
+    updateAspectRatio();
+}
+
+/*
+    const cellsX = cropData.w / cellSizePixels;
+    const cellsY = cropData.h / cellSizePixels;
+    
+    
+    canvas.width = Math.ceil(cropData.w / cellSizePixels) * cellSizePixels;
+    canvas.height = Math.ceil(cropData.h / cellSizePixels) * cellSizePixels;
+    
+    ctx.drawImage(image, cropData.x, cropData.y, cropData.w, cropData.h, 0, 0, cropData.w, cropData.h);
+*/
+
+function createUniformMosaic(image, paletteArray)
+{
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');   
+    
+    canvas.width = Math.ceil(cropData.w / cellSizePixels) * cellSizePixels;
+    canvas.height = Math.ceil(cropData.h / cellSizePixels) * cellSizePixels;
+    
+    // 1. Рассчитываем сколько ячеек (страз) поместится на изображение
+    const maxCellsX = Math.floor($('#width').val() / cellSizeMM);
+    const maxCellsY = Math.floor($('#height').val() / cellSizeMM);
+    const maxPossibleCells = maxCellsX * maxCellsY;
+    const actualStones = maxPossibleCells;
+    
+    console.log(`Максимум ячеек: ${maxPossibleCells}`);
+    
+    // 3. Рассчитываем сетку, чтобы вместить нужное количество страз
+    
+    canvas.width = maxCellsX * sizeOfOneCell;
+    canvas.height = maxCellsY * sizeOfOneCell;
+    
+    // 4. Рисуем изображение (растягиваем под сетку)
+    ctx.drawImage(image, cropData.x, cropData.y, cropData.w, cropData.h, 0, 0, maxCellsX * sizeOfOneCell, maxCellsY * sizeOfOneCell);
+    
+    // 5. Рассчитываем сколько страз каждого цвета
+    const stonesPerColor = calculateStonesPerColor(actualStones, paletteArray.length);
+    console.log(`Страз каждого цвета:`, stonesPerColor);
+    
+    // 6. Создаём карту распределения цветов
+    const colorDistribution = createColorDistributionMap(
+        ctx, 
+        maxCellsX, maxCellsY, sizeOfOneCell,
+        paletteArray,
+        stonesPerColor
+    );
+    
+    // 7. Рисуем мозаику по распределению
+    drawMosaicFromDistribution(ctx, colorDistribution, paletteArray, sizeOfOneCell);
+    
+    // 8. Статистика
+    console.log("Распределение завершено. Использовано страз:", actualStones);
+    
+    return canvas;
+}
+
+function calculateBrightness(color)
+{
+    // Стандартная формула восприятия яркости (ITU-R BT.601)
+    return 0.299 * color.r + 0.587 * color.g + 0.114 * color.b;
+}
+
+function calculateCellBrightness(pixelData)
+{
+    let brightnessSum = 0;
+    let count = 0;
+    
+    for (let i = 0; i < pixelData.length; i += 4)
+    {
+        const r = pixelData[i];
+        const g = pixelData[i + 1];
+        const b = pixelData[i + 2];
+        
+        brightnessSum += 0.299 * r + 0.587 * g + 0.114 * b;
+        count++;
+    }
+    
+    return count > 0 ? brightnessSum / count : 128;
+}
+
+function calculateSaturation(color)
+{
+    const max = Math.max(color.r, color.g, color.b);
+    const min = Math.min(color.r, color.g, color.b);
+    
+    if (max === 0) return 0;
+    
+    return ((max - min) / max) * 100;
+}
+
+function clamp(value, min, max)
+{
+    return Math.max(min, Math.min(max, value));
+}
+
+function calculateStonesPerColor(totalStones, colorCount)
+{
+    const base = Math.floor(totalStones / colorCount);
+    const remainder = totalStones % colorCount;
+    
+    const distribution = new Array(colorCount).fill(base);
+    
+    // Распределяем остаток
+    for (let i = 0; i < remainder; i++)
+    {
+        distribution[i]++;
+    }
+    
+    return distribution;
+}
+
+function createColorDistributionMap(ctx, cellsX, cellsY, cellSizePixels, paletteArray, stonesPerColor)
+{
+    // 1. Анализируем изображение - находим яркость каждой ячейки
+    const cellBrightnesses = [];
+    
+    for (let y = 0; y < cellsY; y++)
+    {
+        for (let x = 0; x < cellsX; x++)
+        {
+            const startX = x * cellSizePixels;
+            const startY = y * cellSizePixels;
+            
+            const cellData = ctx.getImageData(startX, startY, cellSizePixels, cellSizePixels);
+            const brightness = calculateCellBrightness(cellData.data);
+            
+            cellBrightnesses.push({
+                x: x,
+                y: y,
+                brightness: brightness,
+                index: y * cellsX + x
+            });
+        }
+    }
+    
+    // 2. Сортируем ячейки по яркости (от тёмных к светлым)
+    cellBrightnesses.sort((a, b) => a.brightness - b.brightness);
+    
+    // 3. Анализируем палитру - находим яркость каждого цвета
+    const paletteWithBrightness = paletteArray.map((color, index) =>
+    {
+        return {
+            index: index,
+            color: color,
+            brightness: calculateBrightness(color),
+            targetCount: stonesPerColor[index],
+            assigned: 0
+        };
+    });
+    
+    // 4. Сортируем цвета по яркости
+    paletteWithBrightness.sort((a, b) => a.brightness - b.brightness);
+    
+    // 5. Создаём карту распределения
+    const distributionMap = new Array(cellsY).fill().map(() => new Array(cellsX).fill(-1));
+    
+    // 6. Распределяем цвета ПРОПОРЦИОНАЛЬНО яркости
+    let colorIndex = 0;
+    let cellsAssigned = 0;
+    const totalCells = cellsX * cellsY;
+    
+    // Делим отсортированные ячейки на сегменты по количеству цветов
+    const segments = paletteArray.length;
+    const cellsPerSegment = Math.floor(totalCells / segments);
+    
+    for (let segment = 0; segment < segments; segment++)
+    {
+        const currentColor = paletteWithBrightness[segment % paletteWithBrightness.length];
+        const segmentStart = segment * cellsPerSegment;
+        const segmentEnd = Math.min((segment + 1) * cellsPerSegment, totalCells);
+        
+        // Назначаем цвет для ячеек в этом сегменте
+        for (let i = segmentStart; i < segmentEnd; i++)
+        {
+            if (i < cellBrightnesses.length)
+            {
+                const cell = cellBrightnesses[i];
+                distributionMap[cell.y][cell.x] = currentColor.index;
+                currentColor.assigned++;
+                cellsAssigned++;
+            }
+        }
+    }
+    
+    // 7. Если остались ячейки (из-за округления)
+    if (cellsAssigned < totalCells)
+    {
+        for (let i = cellsAssigned; i < totalCells; i++)
+        {
+            if (i < cellBrightnesses.length)
+            {
+                const cell = cellBrightnesses[i];
+                // Берём цвет, который использовался меньше всего
+                const leastUsedColor = paletteWithBrightness.reduce((a, b) => 
+                    a.assigned < b.assigned ? a : b
+                );
+                
+                distributionMap[cell.y][cell.x] = leastUsedColor.index;
+                leastUsedColor.assigned++;
+            }
+        }
+    }
+    
+    // 8. Выводим статистику
+    console.log("Распределение цветов:");
+    
+    $('#colors').html('');
+    paletteWithBrightness.forEach(colorInfo =>
+    {
+        console.log(`Цвет ${colorInfo.index}: ${colorInfo.assigned} из ${colorInfo.targetCount}`);
+        
+        
+        if(showPrintPage)
+        {
+            $('#colors').prepend('<span style="background: rgb('+colorInfo.color.r+', '+colorInfo.color.g+', '+colorInfo.color.b+');" class="color"></span><span class="textColor">' + colorInfo.assigned + '</span>');
+        }
+        
+        console.log(colorInfo);
+    });
+    
+    return distributionMap;
+}
+
+function drawMosaicFromDistribution(ctx, distributionMap, paletteArray, cellSizePixels)
+{
+    const cellsY = distributionMap.length;
+    const cellsX = distributionMap[0].length;
+    
+    if(showPrintPage)
+    {
+        mapToPrintObject = new mapToPrint(cellsX, cellsY, printCellSize, palettes[$('#palette').val()]);
+    }
+    // Очищаем canvas
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    
+    // Рисуем ячейки
+    for (let y = 0; y < cellsY; y++)
+    {
+        for (let x = 0; x < cellsX; x++)
+        {
+            const colorIndex = distributionMap[y][x];
+            
+            if (colorIndex >= 0 && colorIndex < paletteArray.length)
+            {
+                const color = paletteArray[colorIndex];
+                const startX = x * cellSizePixels;
+                const startY = y * cellSizePixels;
+                
+                ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+                ctx.fillRect(startX, startY, cellSizePixels, cellSizePixels);
+                
+                // Подпись индекса цвета (опционально)
+                //ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                //ctx.font = '9px Arial';
+                //ctx.fillText(colorIndex, startX + 2, startY + 12);
+            }
+        }
+    }
+}
+
+</script>
+</head>
+<body>
+
+<div id="row">
+  <div id="leftColumn">
+    <span id="pxOnMM">Пиксели на мм холста: 0px</span>
+    <span id="mozaicCount">Количество страз: 0/0</span>
+    <input id="fileLoader" type="file" />
+    <label class="nonselect">Выберите палитру: 
+      <select id="palette">
+        <option value="original">Оригинальная</option>
+        <option value="vintage">Винтажная</option>
+        <option value="popart">Поп-арт</option>
+        <option value="realistic">Максимальная</option>
+      </select>
+    </label>
+    <label>Высота (мм): 
+      <input type="text" id="height">
+    </label>
+    <label>Ширина (мм): 
+      <input type="text" id="width">
+    </label>
+    <label>Формат:
+      <select id="format">
+        <option value="">Свободный</option>
+        <option selected value="16">16x16см</option>
+        <option value="a5h">A5 гор —</option>
+        <option value="a4h">A4 гор —</option>
+        <option value="a3h">A3 гор —</option>
+        <option value="a5v">A5 верт |</option>
+        <option value="a4v">A4 верт |</option>
+        <option value="a3v">A3 верт |</option>
+      </select>
+    </label>
+    <label>Показать инструкцию <input type="checkbox" id="showPrintPage">
+    </label>
+  </div>
+  <div id="middleColumn">
+    <img id="myImage" />
+  </div>
+</div>
+
+<div id="rightColumn">
+  <canvas id="resultCanvas"></canvas>
+</div>
+<div id="instruction">
+<h1><span id="colors"></span></h1>
+</div>
+</body>
+</html>
